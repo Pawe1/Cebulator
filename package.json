@@ -5,7 +5,8 @@
   "type": "module",
   "description": "Delegation bridge: ship heavy tasks to an unlimited-token LLM channel, get compact answers back.",
   "scripts": {
-    "probe": "node probe.mjs"
+    "probe": "node probe.mjs",
+    "smoke": "node test/smoke.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
