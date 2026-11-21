@@ -1,0 +1,14 @@
+{
+  "name": "cebulator",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Delegation bridge: ship heavy tasks to an unlimited-token LLM channel, get compact answers back.",
+  "scripts": {
+    "probe": "node probe.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.25.0"
+  }
+}
