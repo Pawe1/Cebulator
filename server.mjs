@@ -59,6 +59,11 @@ function capResult(text) {
     "\n[TRUNCATED: result exceeded the return window — ask for a shorter summary via cebulator_followup]";
 }
 
+// Visual tag so the user can see at a glance which answers came through Cebulator.
+function onion(text) {
+  return text + "\n\n— cebulator";
+}
+
 server.registerTool(
   "cebulator_ping",
   {
@@ -125,7 +130,7 @@ server.registerTool(
     if (gate) return gate;
     try {
       LOG(`delegate (${brief.length} chars)`);
-      const result = capResult(await delegate(brief));
+      const result = onion(capResult(await delegate(brief)));
       return ok(result);
     } catch (e) {
       LOG(`delegate FAILED: ${e?.message ?? e}`);
@@ -150,7 +155,7 @@ server.registerTool(
     if (gate) return gate;
     try {
       LOG(`followup (${brief.length} chars)`);
-      const result = capResult(await followup(brief));
+      const result = onion(capResult(await followup(brief)));
       return ok(result);
     } catch (e) {
       LOG(`followup FAILED: ${e?.message ?? e}`);

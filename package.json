@@ -6,8 +6,10 @@
   "description": "Delegation bridge: ship heavy tasks to an unlimited-token LLM channel, get compact answers back.",
   "scripts": {
     "probe": "node probe.mjs",
+    "probe:browser": "node test/browser-probe.mjs",
     "server": "node server.mjs",
     "login": "node login.mjs",
+    "login:manual": "node scripts/manual-login.mjs",
     "register": "node scripts/register.mjs",
     "register:project": "node scripts/register.mjs --project",
     "smoke": "node test/smoke.mjs",

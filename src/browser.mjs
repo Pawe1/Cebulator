@@ -60,21 +60,40 @@ export async function closeBrowser() {
   }
 }
 
-// Returns a chat page; throws LoginRequired if the profile is not logged in.
+// Returns a chat page with a ready composer; throws LoginRequired if the
+// profile genuinely lacks a session.
+//
+// NOTE: even for a logged-in profile, M365 performs a short single-sign-on
+// dance (a brief bounce to the identity wall, then back to /chat). So we do
+// NOT treat a single instant login-looking URL as a failure — we wait for
+// the composer to appear; only a wall that never clears means manual login.
 async function getChatPage() {
   const ctx = await getCtx();
-  const existing = ctx.pages().find((p) => p.url().includes("cloud.microsoft.com"));
-  const page = existing ?? await ctx.newPage();
+  const page =
+    ctx.pages().find((p) => p.url().includes("cloud.microsoft.com")) ??
+    (await ctx.newPage());
 
   if (!page.url().includes("cloud.microsoft.com")) {
-    await page.goto(CHAT_URL, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page
+      .goto(CHAT_URL, { waitUntil: "domcontentloaded", timeout: 60_000 })
+      .catch(() => {});
   }
-  // M365 bounces unauthenticated traffic to an identity wall.
-  if (isLoginWall(page.url)) throw new LoginRequired();
 
-  // Give the SPA a moment to render the composer.
-  await page.waitForTimeout(2_500);
-  return page;
+  const deadline = Date.now() + Number(process.env.CEB_LOGIN_SETTLE_MS ?? 90_000);
+  let wallSince = 0;
+  while (Date.now() < deadline) {
+    const onWall = isLoginWall(page.url());
+    const composer = onWall ? null : await findComposer(page);
+    if (composer) return page;
+    if (onWall) {
+      wallSince = wallSince || Date.now();
+      if (Date.now() - wallSince > 30_000) throw new LoginRequired();
+    } else {
+      wallSince = 0;
+    }
+    await page.waitForTimeout(1_500);
+  }
+  throw new LoginRequired();
 }
 
 async function findComposer(page) {
@@ -123,27 +142,62 @@ async function sendBrief(page, brief) {
 // Waits until the page stops changing after our brief marker and returns
 // everything rendered after it (the answer; may contain the brief's own
 // bubble text — callers may trim it).
-async function readAnswerAfter(page, marker) {
-  const markerNorm = marker.slice(0, 40).replace(/\s+/g, " ").trim();
+async function readAnswerAfter(page, brief) {
+  // Whitespace-tolerant match for the first words of our brief — the spot
+  // where our own sent message rendered. Everything AFTER it (raw, with
+  // line structure kept) is the answer region to wait for and extract.
+  const words = brief.slice(0, 40).replace(/\s+/g, " ").trim().split(" ");
+  const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(words.map(esc).join("\\s+"));
   const start = Date.now();
-  let last = null;
+  let lastRaw = null;
   let stableSince = 0;
   while (Date.now() - start < DEFAULT_TIMEOUT_MS) {
     await page.waitForTimeout(POLL_MS);
-    const body = (await page.evaluate(() => document.body.innerText ?? "")).replace(/\s+/g, " ");
-    const i = body.indexOf(markerNorm);
-    if (i >= 0) {
-      const after = body.slice(i + markerNorm.length).trim();
-      if (after && after !== last) {
-        last = after;
-        stableSince = Date.now();
-      } else if (after && Date.now() - stableSince >= STABLE_MS) {
-        return after;
+    const raw = await page.evaluate(() => document.body.innerText ?? "");
+    const m = raw.match(re);
+    if (m) {
+      const after = raw.slice(m.index + m[0].length).replace(/\u200b/g, "").trim();
+      // Wait for the actual reply marker — the region right after our sent
+      // message is "stable" (contains only our echo) until Copilot answers,
+      // so stability alone is not a completion signal.
+      if (REPLY_MARKER.test(after)) {
+        if (after !== lastRaw) {
+          lastRaw = after;
+          stableSince = Date.now();
+        } else if (Date.now() - stableSince >= STABLE_MS) {
+          return after;
+        }
       }
     }
   }
-  if (last && last.length > 0) return last;
+  if (lastRaw && lastRaw.length > 0) return lastRaw;
   throw new Error("TIMEOUT: web Copilot didn't finish responding within the window. Retry or run with a larger CEB_TIMEOUT_MS.");
+}
+
+// Phrases that begin platform chrome after the real answer (suggested
+// follow-up questions, composer label, disclaimer). The last line of the
+// reply region that starts with one of these is where the model's reply ends.
+const STOP_MARKERS = /^(copilot said|message copilot|ai-generated content|give me|draft (the|a)|show (the|me)|explain the|list the|compare |help me|suggested)$/i;
+
+// Marker the UI renders before the model's reply bubble.
+const REPLY_MARKER = /copilot said\s*:/i;
+
+// Cut the platform chrome off the raw region: the model's reply begins after
+// the "Copilot said:" marker (which also drops the echo of our own brief);
+// the tail (suggested follow-ups, composer label, disclaimer) is trimmed
+// from the bottom line-wise.
+function cleanAnswer(text) {
+  let t = String(text ?? "").replace(/\u200b/g, "");
+  const m = t.match(REPLY_MARKER);
+  if (m) t = t.slice(m.index + m[0].length);
+  const lines = t.split(/\r?\n/).map((l) => l.trim());
+  let end = lines.length;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i]) { end = i; continue; }
+    if (STOP_MARKERS.test(lines[i])) { end = i; break; }
+  }
+  return lines.slice(0, end).join("\n").trim();
 }
 
 async function run(brief, { freshChat }) {
@@ -151,7 +205,8 @@ async function run(brief, { freshChat }) {
   if (freshChat) await openNewChatIfPossible(page);
   await sendBrief(page, brief);
   LOG(`brief sent to copilot cloud chat (${brief.length} chars)`);
-  return await readAnswerAfter(page, brief);
+  const raw = await readAnswerAfter(page, brief);
+  return cleanAnswer(raw);
 }
 
 export async function delegate(brief, opts = {}) {
