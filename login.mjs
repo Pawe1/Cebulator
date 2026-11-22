@@ -2,10 +2,13 @@
 // persistent profile (state/profile) and waits until you sign in to
 // copilot.cloud.microsoft. Cookies persist afterwards; delegations run headless.
 //   npm run login
-import { launchPersistentContext } from "playwright";
+import { chromium } from "playwright";
 import { profileDir, CHAT_URL } from "./src/browser.mjs";
 
-const ctx = await launchPersistentContext(profileDir, { headless: false });
+const ctx = await chromium.launchPersistentContext(profileDir, {
+  headless: false,
+  channel: process.env.CEB_CHANNEL === "chromium" ? undefined : "chrome",
+});
 const page = (await ctx.pages())[0] ?? (await ctx.newPage());
 await page.goto(CHAT_URL, { waitUntil: "domcontentloaded", timeout: 60_000 });
 

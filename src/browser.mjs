@@ -2,7 +2,7 @@
 // with a persistent local profile (one-time human login, then headless).
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { launchPersistentContext } from "playwright";
+import { chromium } from "playwright";
 import { LOG } from "./switch.mjs";
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -12,6 +12,10 @@ const DEFAULT_TIMEOUT_MS = Number(process.env.CEB_TIMEOUT_MS ?? 180_000);
 const POLL_MS = 2_000;
 const STABLE_MS = 10_000;
 const HEADLESS = process.env.CEB_HEADLESS === "1";
+// Default: drive the real Chrome installed on the machine (no separate
+// browser download needed). Set CEB_CHANNEL=chromium to use Playwright's
+// own build instead (requires `npx playwright install chromium`).
+const CHANNEL = process.env.CEB_CHANNEL === "chromium" ? undefined : "chrome";
 
 class LoginRequired extends Error {
   constructor() {
@@ -28,10 +32,22 @@ function isLoginWall(url) {
 
 async function getCtx() {
   if (!ctxPromise) {
-    ctxPromise = launchPersistentContext(profileDir, {
-      headless: HEADLESS,
-      viewport: { width: 1440, height: 900 },
-    });
+    ctxPromise = chromium
+      .launchPersistentContext(profileDir, {
+        headless: HEADLESS,
+        channel: CHANNEL,
+        viewport: { width: 1440, height: 900 },
+      })
+      .catch((e) => {
+        const msg = String(e?.message ?? e);
+        if (CHANNEL && /executable doesn't exist|browserType\.launch/i.test(msg)) {
+          throw new Error(
+            "Chrome was not found on this machine. Either install Chrome, or set " +
+              "CEB_CHANNEL=chromium and run `npx playwright install chromium` once."
+          );
+        }
+        throw e;
+      });
   }
   return ctxPromise;
 }
