@@ -6,10 +6,13 @@
   "description": "Delegation bridge: ship heavy tasks to an unlimited-token LLM channel, get compact answers back.",
   "scripts": {
     "probe": "node probe.mjs",
+    "server": "node server.mjs",
+    "login": "node login.mjs",
     "smoke": "node test/smoke.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
+    "playwright": "^1.65.1",
     "zod": "^3.25.0"
   }
 }

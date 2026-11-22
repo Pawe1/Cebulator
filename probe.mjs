@@ -23,7 +23,7 @@ server.registerTool(
     content: [
       {
         type: "text",
-        text: `cebulator odbiera: ${message ?? "ping"}`,
+        text: `cebulator received: ${message ?? "ping"}`,
       },
     ],
   })
